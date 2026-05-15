@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tra cứu phạt nguội</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="page-shell">
+        <section class="hero card card-hero">
+            <div class="hero-copy">
+                <span class="eyebrow">Cổng tra cứu vi phạm giao thông</span>
+                <h1>Tra cứu phạt nguội nhanh, rõ, dễ kiểm tra</h1>
+                <p class="hero-text">Nhập biển số và chọn đúng loại phương tiện để xem tình trạng vi phạm, thời điểm tra cứu và nguồn tham chiếu trên cùng một màn hình.</p>
+                <ul class="hero-points" aria-label="Lưu ý tra cứu">
+                    <li>Nhập biển số liền mạch, không cần dấu chấm hoặc khoảng trắng.</li>
+                    <li>Chọn đúng nhóm phương tiện để kết quả khớp hơn.</li>
+                    <li>Khi có vi phạm, bảng chi tiết sẽ hiển thị ngay bên dưới.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="card card-form">
+            <div class="section-heading">
+                <div>
+                    <span class="section-kicker">Biểu mẫu tra cứu</span>
+                    <h2>Bắt đầu tra cứu biển số</h2>
+                </div>
+                <p class="section-text">Giữ nguyên dữ liệu đã nhập sau mỗi lần tra cứu để bạn thử lại nhanh hơn.</p>
+            </div>
+
+            <form method="post" class="lookup-form">
+                <div class="field-grid">
+                    <div class="field-group field-compact">
+                        <label for="vehicle_type">Loại phương tiện</label>
+                        <select id="vehicle_type" name="vehicle_type">
+                            <option value="car" {% if vehicle_type == 'car' %}selected{% endif %}>Xe ô tô</option>
+                            <option value="motorbike" {% if vehicle_type == 'motorbike' %}selected{% endif %}>Xe máy</option>
+                            <option value="electricbike" {% if vehicle_type == 'electricbike' %}selected{% endif %}>Xe đạp điện</option>
+                        </select>
+                    </div>
+                    <div class="field-group">
+                        <label for="plate_number">Biển số xe</label>
+                        <input
+                            id="plate_number"
+                            name="plate_number"
+                            type="text"
+                            placeholder="Ví dụ: 51H12345"
+                            value="{{ plate_number }}"
+                            autocomplete="off"
+                            aria-describedby="plate-hint"
+                        >
+                        <p id="plate-hint" class="field-hint">Ví dụ hợp lệ: 30A12345, 51H12345. Không cần nhập dấu gạch ngang.</p>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit">Tra cứu ngay</button>
+                </div>
+            </form>
+        </section>
+
+        {% if result %}
+        <section class="card result-card">
+            <div class="section-heading section-heading-result">
+                <div>
+                    <span class="section-kicker">Kết quả trả về</span>
+                    <h2>Tổng quan tra cứu</h2>
+                </div>
+                <span class="badge badge-{{ result.status }}">{{ result.status }}</span>
+            </div>
+
+            <div class="result-summary">
+                <div class="summary-main">
+                    <p class="summary-label">Biển số đang xem</p>
+                    <h3>{{ result.plate_number or plate_number }}</h3>
+                    <p class="muted">Loại xe: <strong>{{ result.vehicle_type or vehicle_type }}</strong></p>
+                </div>
+                <div class="alert alert-{{ result.status }}">{{ result.message }}</div>
+            </div>
+
+            <dl class="meta-grid">
+                <div class="meta-item">
+                    <dt>Thời điểm tra cứu</dt>
+                    <dd>{{ result.searched_at }}</dd>
+                </div>
+                <div class="meta-item">
+                    <dt>Nguồn dữ liệu</dt>
+                    <dd>
+                        {% if result.source %}
+                        <a href="{{ result.source }}" target="_blank" rel="noreferrer">{{ result.source }}</a>
+                        {% else %}
+                        Không có
+                        {% endif %}
+                    </dd>
+                </div>
+            </dl>
+
+            {% if result.source_note %}
+            <p class="note">{{ result.source_note }}</p>
+            {% endif %}
+
+            {% if result.violations %}
+            <div class="violations-section">
+                <div class="section-heading section-heading-table">
+                    <div>
+                        <span class="section-kicker">Chi tiết vi phạm</span>
+                        <h3>Danh sách bản ghi</h3>
+                    </div>
+                    <p class="section-text">Cuộn ngang trên màn hình nhỏ để xem đầy đủ các cột.</p>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Biển số</th>
+                                <th>Thời gian</th>
+                                <th>Địa điểm</th>
+                                <th>Hành vi</th>
+                                <th>Đơn vị xử lý</th>
+                                <th>Trạng thái</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for violation in result.violations %}
+                            <tr>
+                                <td>{{ violation.plate_number }}</td>
+                                <td>{{ violation.violation_time }}</td>
+                                <td>{{ violation.location }}</td>
+                                <td>{{ violation.behavior }}</td>
+                                <td>{{ violation.handling_unit }}</td>
+                                <td>{{ violation.status }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+    </main>
+</body>
+</html>
