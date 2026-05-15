@@ -12,37 +12,72 @@ class ResearchService:
     def research(self, query: str) -> dict[str, object]:
         normalized_query = self._normalize_query(query)
         if not normalized_query:
-            return {
-                "status": "error",
-                "message": "Vui lòng nhập câu hỏi cần research.",
-                "query": "",
-                "summary": "",
-                "sources": [],
-                "searched_at": self._timestamp(),
-                "model": None,
-            }
+            return self._build_response(
+                status="error",
+                message="Vui lòng nhập câu hỏi hoặc từ khóa cụ thể hơn để tra cứu web realtime.",
+                query="",
+            )
+        if len(normalized_query) < 4:
+            return self._build_response(
+                status="error",
+                message="Câu hỏi quá ngắn. Hãy thêm chủ đề, bối cảnh hoặc mục tiêu bạn muốn tìm.",
+                query=normalized_query,
+            )
 
         try:
             provider_result = self.provider.research(normalized_query)
         except ResearchProviderError as exc:
-            return {
-                "status": "error",
-                "message": str(exc),
-                "query": normalized_query,
-                "summary": "",
-                "sources": [],
-                "searched_at": self._timestamp(),
-                "model": None,
-            }
+            return self._build_response(
+                status="error",
+                message=str(exc),
+                query=normalized_query,
+            )
 
+        status = "success"
+        message = "Tra cứu web realtime hoàn tất."
+        if provider_result.results and not provider_result.answer_box:
+            status = "partial"
+            message = "Đã tìm thấy nguồn web, nhưng chưa có phần tóm tắt nổi bật đủ rõ."
+        elif not provider_result.results:
+            status = "partial"
+            message = "Có kết quả nổi bật, nhưng danh sách nguồn tham khảo còn hạn chế."
+
+        return self._build_response(
+            status=status,
+            message=message,
+            query=normalized_query,
+            answer_box=provider_result.answer_box,
+            results=provider_result.results,
+            top_results=provider_result.top_results,
+            note=provider_result.note,
+            engine=provider_result.engine,
+            source_priority=provider_result.source_priority,
+        )
+
+    def _build_response(
+        self,
+        *,
+        status: str,
+        message: str,
+        query: str,
+        answer_box: str | None = None,
+        results: list[dict[str, object]] | None = None,
+        top_results: list[dict[str, object]] | None = None,
+        note: str | None = None,
+        engine: str | None = None,
+        source_priority: str | None = None,
+    ) -> dict[str, object]:
         return {
-            "status": "success",
-            "message": "Research hoàn tất.",
-            "query": normalized_query,
-            "summary": provider_result.summary,
-            "sources": provider_result.sources,
+            "status": status,
+            "message": message,
+            "query": query,
+            "answer_box": answer_box,
+            "results": results or [],
+            "top_results": top_results or [],
+            "note": note,
+            "engine": engine,
+            "source_priority": source_priority,
             "searched_at": self._timestamp(),
-            "model": provider_result.model,
         }
 
     def _normalize_query(self, query: str) -> str:

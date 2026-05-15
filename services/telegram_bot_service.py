@@ -18,6 +18,7 @@ class TelegramMessageRequest:
 
 
 class TelegramBotService:
+    TELEGRAM_MESSAGE_LIMIT = 3500
     VEHICLE_TYPES = {
         "car": "Xe ô tô",
         "motorbike": "Xe máy",
@@ -25,7 +26,7 @@ class TelegramBotService:
     }
     FEATURE_LABELS = {
         "lookup": "Tra cứu phạt nguội",
-        "research": "Research ngoài",
+        "research": "Tra cứu web realtime",
     }
     LOOKUP_CALLBACK_PREFIX = "lookup"
     FEATURE_CALLBACK_PREFIX = "feature"
@@ -86,6 +87,11 @@ class TelegramBotService:
             self._clear_state(chat_id)
             return self._menu_messages(chat_id)
 
+        claude_query = self._parse_claude_command(text)
+        if claude_query:
+            self._clear_state(chat_id)
+            return self._research_messages(chat_id, claude_query)
+
         if text.lower() in {"/start", "/help", "menu", "🏠 menu"}:
             self._clear_state(chat_id)
             return self._menu_messages(chat_id)
@@ -98,14 +104,9 @@ class TelegramBotService:
             self.chat_states[chat_id] = self.RESEARCH_STATE
             return self._feature_help_messages(chat_id, self._research_help_text())
 
-        claude_query = self._parse_claude_command(text)
-        if claude_query is not None:
-            self._clear_state(chat_id)
-            return [self._research_message(chat_id, claude_query)]
-
         if self.chat_states.get(chat_id) == self.RESEARCH_STATE:
             self._clear_state(chat_id)
-            return [self._research_message(chat_id, text)]
+            return self._research_messages(chat_id, text)
 
         plate_number, vehicle_type = self._parse_lookup_text(text)
         if vehicle_type:
@@ -170,9 +171,15 @@ class TelegramBotService:
         result = self.lookup_service.lookup(plate_number, vehicle_type)
         return TelegramMessageRequest(chat_id=chat_id, text=self._format_lookup_result(result))
 
-    def _research_message(self, chat_id: int, query: str) -> TelegramMessageRequest:
+    def _research_messages(self, chat_id: int, query: str) -> list[TelegramMessageRequest]:
         result = self.research_service.research(query)
-        return TelegramMessageRequest(chat_id=chat_id, text=self._format_research_result(result))
+        return [
+            TelegramMessageRequest(chat_id=chat_id, text=chunk)
+            for chunk in self._chunk_message(self._format_research_result(result))
+        ]
+
+    def _research_message(self, chat_id: int, query: str) -> TelegramMessageRequest:
+        return self._research_messages(chat_id, query)[0]
 
     def _feature_from_text(self, text: str) -> str | None:
         normalized = text.strip().lower()
@@ -182,10 +189,11 @@ class TelegramBotService:
         return None
 
     def _parse_claude_command(self, text: str) -> str | None:
-        command, _, payload = text.partition(" ")
-        if command.lower() != "/claude":
+        normalized = text.strip()
+        if not normalized.lower().startswith("/claude"):
             return None
-        return payload.strip()
+        query = normalized[7:].strip()
+        return query or None
 
     def _parse_lookup_text(self, text: str) -> tuple[str, str | None]:
         parts = text.split()
@@ -296,28 +304,72 @@ class TelegramBotService:
 
     def _format_research_result(self, result: dict[str, Any]) -> str:
         lines = [
-            "Kết quả research ngoài",
+            "Tra cứu web realtime",
             f"Truy vấn: {result.get('query') or '-'}",
-            f"Trạng thái: {result.get('status')}",
-            f"Thông báo: {result.get('message')}",
-            f"Thời điểm: {result.get('searched_at')}",
+            f"Kết quả: {result.get('message')}",
         ]
 
-        model = result.get("model")
-        if model:
-            lines.append(f"Model: {model}")
+        answer_box = str(result.get("answer_box") or "").strip()
+        if answer_box:
+            lines.extend(["", "Tóm tắt nhanh", answer_box])
 
-        summary = str(result.get("summary") or "").strip()
-        if summary:
-            lines.extend(["", "Tóm tắt:", summary])
+        top_results = result.get("top_results") or result.get("results") or []
+        if top_results:
+            lines.extend(["", "Nguồn nên xem"])
+            for item in top_results[:4]:
+                source_type = self._source_type_label(str(item.get("source_type") or "other"))
+                lines.append(f"{item.get('rank')}. {item.get('title') or '-'} [{source_type}]")
+                lines.append(str(item.get('snippet') or 'Không có mô tả ngắn.'))
+                lines.append(str(item.get('url') or '-'))
+                lines.append("")
 
-        sources = result.get("sources") or []
-        if sources:
-            lines.extend(["", "Nguồn tham khảo:"])
-            for index, source in enumerate(sources, start=1):
-                lines.append(f"{index}. {source.get('title') or '-'} | {source.get('url') or '-'}")
+        note = result.get("note")
+        if note:
+            lines.extend(["Lưu ý", str(note)])
 
-        return "\n".join(lines)
+        if result.get("status") == "error":
+            lines.append("")
+            lines.append("Hãy thử viết lại câu hỏi cụ thể hơn hoặc gửi lại sau.")
+
+        return "\n".join(line for line in lines if line is not None).rstrip()
+
+    def _source_type_label(self, source_type: str) -> str:
+        return {
+            "official": "chính thống",
+            "primary": "nguồn gốc",
+            "reputable": "uy tín",
+            "community": "cộng đồng",
+            "other": "tham khảo",
+        }.get(source_type, "tham khảo")
+
+    def _chunk_message(self, text: str) -> list[str]:
+        normalized = text.strip()
+        if len(normalized) <= self.TELEGRAM_MESSAGE_LIMIT:
+            return [normalized]
+
+        chunks: list[str] = []
+        current = ""
+        for block in normalized.split("\n\n"):
+            candidate = block.strip()
+            if not candidate:
+                continue
+            separator = "\n\n" if current else ""
+            if len(current) + len(separator) + len(candidate) <= self.TELEGRAM_MESSAGE_LIMIT:
+                current = f"{current}{separator}{candidate}"
+                continue
+            if current:
+                chunks.append(current)
+                current = ""
+            while len(candidate) > self.TELEGRAM_MESSAGE_LIMIT:
+                split_at = candidate.rfind("\n", 0, self.TELEGRAM_MESSAGE_LIMIT)
+                if split_at <= 0:
+                    split_at = self.TELEGRAM_MESSAGE_LIMIT
+                chunks.append(candidate[:split_at].rstrip())
+                candidate = candidate[split_at:].lstrip()
+            current = candidate
+        if current:
+            chunks.append(current)
+        return chunks or [normalized]
 
     def _lookup_help_text(self) -> str:
         return (
@@ -328,14 +380,20 @@ class TelegramBotService:
         )
 
     def _research_help_text(self) -> str:
-        return "Hãy gửi câu hỏi cần research ở tin nhắn tiếp theo, hoặc dùng /claude <câu hỏi> để test trực tiếp."
+        return (
+            "Gửi câu hỏi ở tin nhắn tiếp theo để bot tra cứu web realtime.\n"
+            "Bot sẽ ưu tiên nguồn chính thống trước, rồi mở rộng sang nguồn tham khảo nếu cần.\n\n"
+            "Ví dụ:\n"
+            "- Mức phạt vượt đèn đỏ xe máy năm 2025\n"
+            "- Thủ tục cấp lại GPLX bị mất\n"
+            "- /claude học phí đại học công lập 2026"
+        )
 
     def _help_text(self) -> str:
         return (
             "Chọn tính năng cần dùng:\n"
             "- Tra cứu phạt nguội\n"
-            "- Research ngoài\n"
-            "- Test nhanh Claude: /claude thời tiết Hà Nội hôm nay\n\n"
+            "- Tra cứu web realtime\n\n"
             f"{self._lookup_help_text()}"
         )
 
