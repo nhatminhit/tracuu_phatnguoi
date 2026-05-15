@@ -2,12 +2,14 @@ import os
 
 from flask import Flask, jsonify, render_template, request
 
+from services.research_service import ResearchService
 from services.telegram_bot_service import TelegramBotService
 from services.traffic_fine_service import TrafficFineService
 
 app = Flask(__name__)
 service = TrafficFineService()
-telegram_bot = TelegramBotService(service)
+research_service = ResearchService()
+telegram_bot = TelegramBotService(service, research_service)
 
 
 @app.get("/")
