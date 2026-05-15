@@ -20,10 +20,10 @@ class ResearchProviderError(Exception):
 
 class ResearchProvider:
     SYSTEM_PROMPT = (
-        "Bạn là trợ lý research web bằng tiếng Việt. "
-        "Trả lời ngắn gọn, chính xác. "
-        "Nếu không chắc, nói rõ giới hạn. "
-        "Luôn ưu tiên thông tin có thể kiểm chứng và nêu nguồn tham khảo rõ ràng."
+        "Bạn là trợ lý hỏi đáp bằng tiếng Việt. "
+        "Trả lời ngắn gọn, chính xác, dễ hiểu. "
+        "Nếu không chắc hoặc thông tin có thể đã cũ, nói rõ giới hạn. "
+        "Không bịa nguồn. Chỉ nêu nguồn tham khảo khi thực sự có trong ngữ cảnh."
     )
 
     def __init__(
@@ -55,20 +55,16 @@ class ResearchProvider:
                         "cache_control": {"type": "ephemeral"},
                     }
                 ],
-                tools=[
-                    {"type": "web_search_20260209", "name": "web_search"},
-                    {"type": "web_fetch_20260209", "name": "web_fetch"},
-                ],
                 messages=[
                     {
                         "role": "user",
                         "content": (
-                            "Hãy research chủ đề sau và trả lời bằng tiếng Việt:\n"
+                            "Hãy trả lời câu hỏi sau bằng tiếng Việt:\n"
                             f"{query}\n\n"
                             "Yêu cầu:\n"
-                            "1. Tóm tắt ngắn gọn, có cấu trúc.\n"
-                            "2. Nếu có nhiều nguồn, tổng hợp điểm chính.\n"
-                            "3. Kết thúc bằng mục 'Nguồn tham khảo' với mỗi nguồn trên một dòng theo dạng '- tiêu đề | url'."
+                            "1. Trả lời ngắn gọn, có cấu trúc.\n"
+                            "2. Nếu nội dung có thể phụ thuộc dữ liệu thời gian thực hoặc có thể đã cũ, nói rõ điều đó.\n"
+                            "3. Chỉ thêm mục 'Nguồn tham khảo' nếu bạn thực sự có nguồn cụ thể trong ngữ cảnh hiện tại."
                         ),
                     }
                 ],

@@ -84,23 +84,24 @@ class TelegramBotService:
         text = (message.get("text") or "").strip()
         if not text:
             self._clear_state(chat_id)
-            return [
-                TelegramMessageRequest(
-                    chat_id=chat_id,
-                    text=self._help_text(),
-                    reply_markup=self._feature_keyboard(),
-                )
-            ]
+            return self._menu_messages(chat_id)
 
-        if text.lower() in {"/start", "/help"}:
+        if text.lower() in {"/start", "/help", "menu", "🏠 menu"}:
             self._clear_state(chat_id)
-            return [
-                TelegramMessageRequest(
-                    chat_id=chat_id,
-                    text=self._help_text(),
-                    reply_markup=self._feature_keyboard(),
-                )
-            ]
+            return self._menu_messages(chat_id)
+
+        selected_feature = self._feature_from_text(text)
+        if selected_feature == "lookup":
+            self._clear_state(chat_id)
+            return self._feature_help_messages(chat_id, self._lookup_help_text())
+        if selected_feature == "research":
+            self.chat_states[chat_id] = self.RESEARCH_STATE
+            return self._feature_help_messages(chat_id, self._research_help_text())
+
+        claude_query = self._parse_claude_command(text)
+        if claude_query is not None:
+            self._clear_state(chat_id)
+            return [self._research_message(chat_id, claude_query)]
 
         if self.chat_states.get(chat_id) == self.RESEARCH_STATE:
             self._clear_state(chat_id)
@@ -113,13 +114,7 @@ class TelegramBotService:
 
         if not plate_number:
             self._clear_state(chat_id)
-            return [
-                TelegramMessageRequest(
-                    chat_id=chat_id,
-                    text=self._help_text(),
-                    reply_markup=self._feature_keyboard(),
-                )
-            ]
+            return self._menu_messages(chat_id)
 
         return [
             TelegramMessageRequest(
@@ -146,16 +141,10 @@ class TelegramBotService:
             feature = payload[0]
             self._clear_state(chat_id)
             if feature == "lookup":
-                return [
-                    TelegramMessageRequest(
-                        chat_id=chat_id,
-                        text=self._lookup_help_text(),
-                        reply_markup=self._feature_keyboard(),
-                    )
-                ]
+                return self._feature_help_messages(chat_id, self._lookup_help_text())
             if feature == "research":
                 self.chat_states[chat_id] = self.RESEARCH_STATE
-                return [TelegramMessageRequest(chat_id=chat_id, text=self._research_help_text())]
+                return self._feature_help_messages(chat_id, self._research_help_text())
             return [TelegramMessageRequest(chat_id=chat_id, text="Tính năng không hợp lệ.")]
 
         if kind == self.LOOKUP_CALLBACK_PREFIX:
@@ -165,6 +154,18 @@ class TelegramBotService:
 
         return [TelegramMessageRequest(chat_id=chat_id, text="Yêu cầu không hợp lệ.")]
 
+    def _menu_messages(self, chat_id: int) -> list[TelegramMessageRequest]:
+        return [
+            TelegramMessageRequest(chat_id=chat_id, text="Menu nhanh đã bật dưới ô chat.", reply_markup=self._menu_keyboard()),
+            TelegramMessageRequest(chat_id=chat_id, text=self._help_text(), reply_markup=self._feature_keyboard()),
+        ]
+
+    def _feature_help_messages(self, chat_id: int, text: str) -> list[TelegramMessageRequest]:
+        return [
+            TelegramMessageRequest(chat_id=chat_id, text="Bạn có thể dùng nút dưới ô chat hoặc bấm nút nhanh bên dưới." , reply_markup=self._menu_keyboard()),
+            TelegramMessageRequest(chat_id=chat_id, text=text, reply_markup=self._feature_keyboard()),
+        ]
+
     def _lookup_message(self, chat_id: int, plate_number: str, vehicle_type: str) -> TelegramMessageRequest:
         result = self.lookup_service.lookup(plate_number, vehicle_type)
         return TelegramMessageRequest(chat_id=chat_id, text=self._format_lookup_result(result))
@@ -172,6 +173,19 @@ class TelegramBotService:
     def _research_message(self, chat_id: int, query: str) -> TelegramMessageRequest:
         result = self.research_service.research(query)
         return TelegramMessageRequest(chat_id=chat_id, text=self._format_research_result(result))
+
+    def _feature_from_text(self, text: str) -> str | None:
+        normalized = text.strip().lower()
+        for feature, label in self.FEATURE_LABELS.items():
+            if normalized == label.lower():
+                return feature
+        return None
+
+    def _parse_claude_command(self, text: str) -> str | None:
+        command, _, payload = text.partition(" ")
+        if command.lower() != "/claude":
+            return None
+        return payload.strip()
 
     def _parse_lookup_text(self, text: str) -> tuple[str, str | None]:
         parts = text.split()
@@ -183,6 +197,17 @@ class TelegramBotService:
         if vehicle_type not in self.VEHICLE_TYPES:
             return plate_number, None
         return plate_number, vehicle_type
+
+    def _menu_keyboard(self) -> dict[str, Any]:
+        return {
+            "keyboard": [
+                [{"text": self.FEATURE_LABELS["lookup"]}],
+                [{"text": self.FEATURE_LABELS["research"]}],
+                [{"text": "🏠 Menu"}],
+            ],
+            "resize_keyboard": True,
+            "persistent": True,
+        }
 
     def _feature_keyboard(self) -> dict[str, Any]:
         return {
@@ -303,13 +328,14 @@ class TelegramBotService:
         )
 
     def _research_help_text(self) -> str:
-        return "Hãy gửi câu hỏi cần research ở tin nhắn tiếp theo."
+        return "Hãy gửi câu hỏi cần research ở tin nhắn tiếp theo, hoặc dùng /claude <câu hỏi> để test trực tiếp."
 
     def _help_text(self) -> str:
         return (
             "Chọn tính năng cần dùng:\n"
             "- Tra cứu phạt nguội\n"
-            "- Research ngoài\n\n"
+            "- Research ngoài\n"
+            "- Test nhanh Claude: /claude thời tiết Hà Nội hôm nay\n\n"
             f"{self._lookup_help_text()}"
         )
 
