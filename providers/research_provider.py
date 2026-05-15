@@ -34,7 +34,8 @@ class ResearchProvider:
     ) -> None:
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
         self.model = model or os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-        self.client = client or anthropic.Anthropic(api_key=self.api_key)
+        base_url = os.getenv("ANTHROPIC_BASE_URL") or None
+        self.client = client or anthropic.Anthropic(api_key=self.api_key, base_url=base_url)
 
     def research(self, query: str) -> ResearchProviderResult:
         if not self.api_key:
